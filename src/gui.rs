@@ -6,7 +6,9 @@ use crate::session;
 use crate::vfs::Module;
 use eframe::egui;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::thread;
 
 pub fn run() {
@@ -40,6 +42,7 @@ struct ModuleEntry {
     id: String,
     name: String,
     open: bool,
+    activities: Vec<serde_json::Value>,
     items: Vec<ItemEntry>,
     loaded: bool,
 }
@@ -84,6 +87,7 @@ enum Msg {
         ok: usize,
         skipped: usize,
         failed: Vec<String>,
+        cancelled: bool,
     },
     Status(String),
 }
@@ -107,6 +111,7 @@ struct App {
     current: String,
     log: Vec<String>,
     include_viewer: bool,
+    cancel: Arc<AtomicBool>,
     search: String,
     styled: bool,
     logo: Option<egui::TextureHandle>,
@@ -170,6 +175,7 @@ impl App {
             current: String::new(),
             log: vec![],
             include_viewer: false,
+            cancel: Arc::new(AtomicBool::new(false)),
             search: String::new(),
             styled: false,
             logo: None,
@@ -328,11 +334,14 @@ impl App {
                         self.total = total;
                         self.current = file;
                     }
-                    Msg::DlDone { ok, skipped, failed } => {
+                    Msg::DlDone { ok, skipped, failed, cancelled } => {
                         self.busy = false;
                         self.current.clear();
-                        self.status =
-                            format!("selesai: ok={ok} skipped={skipped} failed={}", failed.len());
+                        self.status = if cancelled {
+                            format!("dibatalkan — yang sudah selesai tetap kesimpan (ok={ok})")
+                        } else {
+                            format!("selesai: ok={ok} skipped={skipped} failed={}", failed.len())
+                        };
                         self.log.push(format!(
                             "done ok={ok} skipped={skipped} failed={}",
                             failed.len()
@@ -407,9 +416,10 @@ fn fetch_modules(tx: Sender<Msg>, course: usize, id: String, ctx: egui::Context)
                     mods: mods
                         .into_iter()
                         .map(|m| ModuleEntry {
-                            id: m.id,
-                            name: m.name,
+                            id: m.id.clone(),
+                            name: m.name.clone(),
                             open: m.is_open,
+                            activities: m.activities.clone(),
                             items: vec![],
                             loaded: false,
                         })
@@ -453,49 +463,125 @@ fn fetch_items(tx: Sender<Msg>, course: usize, module: usize, m: Module, ctx: eg
     });
 }
 
-fn start_download(tx: Sender<Msg>, jobs: Vec<Job>, note: String, ctx: egui::Context) {
+/// Collect (modules -> items -> urls) AND download, fully in background.
+/// The UI thread never blocks, so the OS never reports "not responding".
+/// `module_id`: None = whole course.
+fn collect_and_download(
+    tx: Sender<Msg>,
+    ctx: egui::Context,
+    course_id: String,
+    course_name: String,
+    module_id: Option<String>,
+    include_viewer: bool,
+    cancel: Arc<AtomicBool>,
+) {
     thread::spawn(move || {
-        let total = jobs.len();
-        let (mut ok, mut skipped) = (0usize, 0usize);
-        let mut failed = vec![];
+        let progress = |done: usize, total: usize, file: String| {
+            let _ = tx.send(Msg::DlProgress { done, total, file });
+            ctx.request_repaint();
+        };
+        let fail = |failed: Vec<String>| {
+            let _ = tx.send(Msg::DlDone { ok: 0, skipped: 0, failed, cancelled: false });
+            ctx.request_repaint();
+        };
         let sess = match session::load() {
             Some(s) => s,
             None => {
-                let _ = tx.send(Msg::DlDone {
-                    ok: 0,
-                    skipped: 0,
-                    failed: vec!["belum login".to_string()],
-                });
+                fail(vec!["belum login".to_string()]);
                 return;
             }
         };
         let c = match Client::new(sess) {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send(Msg::DlDone {
-                    ok: 0,
-                    skipped: 0,
-                    failed: vec![format!("{e:?}")],
-                });
+                fail(vec![format!("{e:?}")]);
                 return;
             }
         };
+        let mods = match c.course_modules(&course_id) {
+            Ok(m) => m,
+            Err(e) => {
+                fail(vec![format!("gagal load modul: {e}")]);
+                return;
+            }
+        };
+        let mods: Vec<_> = match &module_id {
+            Some(mid) => mods.into_iter().filter(|m| &m.id == mid).collect(),
+            None => mods,
+        };
+        if mods.is_empty() {
+            fail(vec!["matkul/modul tidak ketemu".to_string()]);
+            return;
+        }
+        let _ = tx.send(Msg::Status(format!(
+            "memindai {} modul...",
+            mods.len()
+        )));
+        let mut jobs = vec![];
+        let mut skipped_viewer = 0usize;
+        for (n, m) in mods.iter().enumerate() {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+            let items = c.module_items(m).unwrap_or_default();
+            for it in items {
+                let is_viewer = it.is_viewer_hint();
+                match Client::file_url(&it.raw) {
+                    None => skipped_viewer += 1,
+                    Some((url, fname, sz)) => {
+                        if is_viewer && !include_viewer {
+                            skipped_viewer += 1;
+                            continue;
+                        }
+                        let safe: String = fname
+                            .chars()
+                            .map(|ch| {
+                                if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                                    '_'
+                                } else {
+                                    ch
+                                }
+                            })
+                            .collect();
+                        let safe = safe.trim();
+                        let safe = if safe.is_empty() { "file".to_string() } else { safe.to_string() };
+                        let dest = crate::out_dir().join(&course_name).join(&m.name).join(&safe);
+                        jobs.push(Job {
+                            label: format!("{}/{}", m.name, safe),
+                            url,
+                            dest,
+                            size: sz,
+                        });
+                    }
+                }
+            }
+            let _ = tx.send(Msg::Status(format!(
+                "memindai modul {}/{}...",
+                n + 1,
+                mods.len()
+            )));
+        }
+        let total = jobs.len();
+        let _ = tx.send(Msg::Status(format!(
+            "{total} file, {skipped_viewer} viewer dilewati — mulai download"
+        )));
+        let (mut ok, mut skipped) = (0usize, 0usize);
+        let mut failed = vec![];
         for (n, j) in jobs.iter().enumerate() {
-            let _ = tx.send(Msg::DlProgress {
-                done: n,
-                total,
-                file: j.label.clone(),
-            });
-            ctx.request_repaint();
+            if cancel.load(Ordering::Relaxed) {
+                let _ = tx.send(Msg::DlDone { ok, skipped, failed, cancelled: true });
+                ctx.request_repaint();
+                return;
+            }
+            progress(n, total, j.label.clone());
             match c.download(&j.url, &j.dest, j.size) {
                 Ok(api::DlOutcome::SkipSameSize) => skipped += 1,
                 Ok(api::DlOutcome::Done(_)) => ok += 1,
                 Err(e) => failed.push(format!("{} :: {e}", j.label)),
             }
         }
-        let _ = tx.send(Msg::DlProgress { done: total, total, file: note });
-        ctx.request_repaint();
-        let _ = tx.send(Msg::DlDone { ok, skipped, failed });
+        progress(total, total, String::new());
+        let _ = tx.send(Msg::DlDone { ok, skipped, failed, cancelled: false });
         ctx.request_repaint();
     });
 }
@@ -600,17 +686,26 @@ impl eframe::App for App {
         // bottom: progress + log
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if self.busy && self.total > 0 {
-                    let p = self.done as f32 / self.total.max(1) as f32;
-                    ui.add(
-                        egui::ProgressBar::new(p)
-                            .show_percentage()
-                            .desired_width(220.0),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!("{}/{} {}", self.done, self.total, self.current))
-                            .monospace(),
-                    );
+                if self.busy {
+                    if self.total > 0 {
+                        let p = self.done as f32 / self.total.max(1) as f32;
+                        ui.add(
+                            egui::ProgressBar::new(p)
+                                .show_percentage()
+                                .desired_width(220.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("{}/{} {}", self.done, self.total, self.current))
+                                .monospace(),
+                        );
+                    } else {
+                        ui.spinner();
+                        ui.label(&self.status);
+                    }
+                    if ui.small_button("Batal").on_hover_text("berhenti, yang sudah selesai tetap kesimpan").clicked() {
+                        self.cancel.store(true, Ordering::Relaxed);
+                        self.status = "membatalkan (tunggu file aktif selesai)...".to_string();
+                    }
                 } else {
                     let ok = self.status.starts_with("selesai") || self.status.starts_with("halo");
                     ui.label(egui::RichText::new(&self.status).color(if ok { GOOD } else { MUTED }));
@@ -761,103 +856,51 @@ impl eframe::App for App {
 
 impl App {
     fn load_module_items(&mut self, ci: usize, mi: usize, ctx: egui::Context) {
-        let c = match sess_client() {
-            Some(c) => c,
-            None => return,
-        };
-        let mods = match self
-            .courses
-            .get(ci)
-            .and_then(|cc| c.course_modules(&cc.id).ok())
-        {
-            Some(m) => m,
-            None => return,
-        };
-        if let Some(m) = mods.into_iter().find(|m| {
-            self.modules
-                .get(mi)
-                .map(|old| old.id == m.id)
-                .unwrap_or(false)
-        }) {
+        // reuse the already-loaded module: no network on the UI thread
+        // (fetch_items runs its HTTP in a worker thread).
+        if let Some(e) = self.modules.get(mi).cloned() {
+            let m = crate::vfs::Module {
+                id: e.id,
+                name: e.name,
+                is_open: e.open,
+                activities: e.activities,
+                items: vec![],
+                items_fetched: false,
+            };
             fetch_items(self.sender(), ci, mi, m, ctx.clone());
         }
     }
 
-    /// Download whole course (`module=None`) or one module.
+    /// Start a course/module download. Returns immediately (no freeze):
+    /// everything happens in `collect_and_download` on a worker thread.
     fn download_course(&mut self, ci: usize, module: Option<usize>, ctx: egui::Context) {
         let course = match self.courses.get(ci).cloned() {
             Some(c) => c,
             None => return,
         };
-        let c = match sess_client() {
-            Some(c) => c,
-            None => return,
-        };
-        self.status = "menyiapkan daftar file...".to_string();
-        let mods = match c.course_modules(&course.id) {
-            Ok(m) => m,
-            Err(e) => {
-                self.status = format!("gagal: {e}");
-                return;
-            }
-        };
-        let mut jobs = vec![];
-        let mut skipped_viewer = 0usize;
-        for m in &mods {
-            if let Some(mi) = module {
-                let want = match self.modules.get(mi) {
-                    Some(x) => x.id.clone(),
-                    None => continue,
-                };
-                if m.id != want {
-                    continue;
-                }
-            }
-            let items = c.module_items(m).unwrap_or_default();
-            for it in items {
-                let is_viewer = it.is_viewer_hint();
-                match Client::file_url(&it.raw) {
-                    None => {
-                        skipped_viewer += 1;
-                    }
-                    Some((url, fname, sz)) => {
-                        if is_viewer && !self.include_viewer {
-                            skipped_viewer += 1;
-                            continue;
-                        }
-                        let safe: String = fname
-                            .chars()
-                            .map(|ch| {
-                                if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-                                    '_'
-                                } else {
-                                    ch
-                                }
-                            })
-                            .collect();
-                        let safe = safe.trim();
-                        let safe = if safe.is_empty() { "file".to_string() } else { safe.to_string() };
-                        let dest = crate::out_dir().join(&course.name).join(&m.name).join(&safe);
-                        jobs.push(Job {
-                            label: format!("{}/{}", m.name, safe),
-                            url,
-                            dest,
-                            size: sz,
-                        });
-                    }
-                }
-            }
+        let module_id = module.and_then(|mi| self.modules.get(mi).map(|m| m.id.clone()));
+        if module.is_some() && module_id.is_none() {
+            self.status = "buka dulu modulnya, baru download".to_string();
+            return;
         }
-        self.total = jobs.len();
-        self.done = 0;
+        self.cancel.store(false, Ordering::Relaxed);
         self.busy = true;
-        self.status = format!("{} file, {skipped_viewer} viewer dilewati", jobs.len());
-        self.log.push(format!(
-            "dl {} ({} file) -> {}",
+        self.done = 0;
+        self.total = 0;
+        self.current.clear();
+        self.status = "menyiapkan daftar file...".to_string();
+        self.log.push(format!("dl {} -> {}", course.name, crate::out_dir().display()));
+        ctx.request_repaint();
+        collect_and_download(
+            self.sender(),
+            ctx,
+            course.id,
             course.name,
-            jobs.len(),
-            crate::out_dir().display()
-        ));
-        start_download(self.sender(), jobs, String::new(), ctx);
+            module_id,
+            self.include_viewer,
+            self.cancel.clone(),
+        );
     }
+
+
 }
