@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=eduway
+Comment=Download your Edunex courses
+Exec=eduway gui
+Icon=eduway
+Terminal=false
+Type=Application
+Categories=Education;
+StartupNotify=true

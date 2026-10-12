@@ -1,0 +1,26 @@
+[package]
+name = "eduway"
+version = "0.1.0"
+edition = "2021"
+description = "Browse and download your Edunex courses from the terminal"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rustyline = "14"
+anyhow = "1"
+dirs = "5"
+zip = "2"
+tiny_http = "0.12"
+open = "5"
+tungstenite = "0.24"
+eframe = { version = "0.30", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+
+[features]
+default = []
+gui = ["eframe", "dep:image"]
+
+[build-dependencies]
+winres = "0.1"
