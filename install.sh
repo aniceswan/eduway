@@ -44,10 +44,10 @@ fi
 # linux desktop entry + icon
 if [[ "$OS" == "Linux" && -f "$TMP/eduway.desktop" ]]; then
   mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/256x256/apps"
-  sed "s|^Exec=.*|Exec=$BIN_DIR/eduway gui|" "$TMP/eduway.desktop" > "$HOME/.local/share/applications/eduway.desktop"
+  cp "$TMP/eduway.desktop" "$HOME/.local/share/applications/eduway.desktop"
   [[ -f "$TMP/icon-256.png" ]] && cp "$TMP/icon-256.png" "$HOME/.local/share/icons/hicolor/256x256/apps/eduway.png"
 fi
 
 export PATH="$BIN_DIR:$PATH"
 echo "ok: $(eduway pwd 2>/dev/null || echo installed) -> $BIN_DIR/eduway"
-echo "jalanin: eduway   (atau: eduway gui)"
+echo "jalanin: eduway"

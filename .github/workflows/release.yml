@@ -18,7 +18,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: install linux deps (eframe/winit)
+      - name: install linux deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -28,8 +28,8 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install nsis -y --no-progress
 
-      - name: build (CLI + GUI)
-        run: cargo build --release --features gui
+      - name: build
+        run: cargo build --release
 
       - name: package linux (.deb + .tar.gz)
         if: runner.os == 'Linux'
@@ -38,7 +38,7 @@ jobs:
           PKG="distdeb/eduway_${VER}_amd64"
           mkdir -p "$PKG/DEBIAN" "$PKG/usr/bin" "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/256x256/apps" dist
           cp target/release/eduway "$PKG/usr/bin/"
-          sed 's|^Exec=.*|Exec=eduway gui|' assets/eduway.desktop > "$PKG/usr/share/applications/eduway.desktop"
+          cp assets/eduway.desktop "$PKG/usr/share/applications/eduway.desktop"
           cp assets/icon-256.png "$PKG/usr/share/icons/hicolor/256x256/apps/eduway.png"
           cat > "$PKG/DEBIAN/control" <<EOF
           Package: eduway
@@ -48,7 +48,7 @@ jobs:
           Architecture: amd64
           Depends: libssl3
           Maintainer: eduway <noreply>
-          Description: Download your Edunex courses from the terminal or GUI.
+          Description: Download your Edunex courses from the terminal.
           EOF
           dpkg-deb --build "$PKG" "dist/eduway-Linux.deb"
           cp target/release/eduway README.md edunex-protocol.md assets/eduway.desktop assets/icon-256.png dist/

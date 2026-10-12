@@ -1,9 +1,9 @@
 [Desktop Entry]
 Name=eduway
-Comment=Download your Edunex courses
-Exec=eduway gui
+Comment=Download your Edunex courses from the terminal
+Exec=eduway
 Icon=eduway
-Terminal=false
+Terminal=true
 Type=Application
 Categories=Education;
 StartupNotify=true

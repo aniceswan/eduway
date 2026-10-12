@@ -15,12 +15,6 @@ zip = "2"
 tiny_http = "0.12"
 open = "5"
 tungstenite = "0.24"
-eframe = { version = "0.30", optional = true }
-image = { version = "0.25", default-features = false, features = ["png"], optional = true }
-
-[features]
-default = []
-gui = ["eframe", "dep:image"]
 
 [build-dependencies]
 winres = "0.1"

@@ -4,11 +4,7 @@
 
 `eduway` itu aplikasi buat menjelajah + download semua materi kuliah dari
 [Edunex ITB](https://edunex.itb.ac.id) langsung dari laptop — tanpa buka
-satu-satu di browser. Ada dua wajah: **aplikasi grafis (GUI)** dan
-**terminal interaktif (CLI)**, satu mesin yang sama.
-
-![layar login](assets/screenshots/login.png)
-![tampilan utama](assets/screenshots/main.png)
+satu-satu di browser, lewat terminal interaktif (CLI) yang ringan.
 
 ---
 
@@ -24,7 +20,7 @@ Paling gampang — file `.deb`:
 ```bash
 # download eduway-Linux.deb dari halaman Releases, lalu:
 sudo dpkg -i eduway-Linux.deb
-eduway gui
+eduway
 ```
 
 Atau tanpa sudo (script install):
@@ -38,7 +34,7 @@ Yang terjadi: binary masuk `~/.local/bin`, shortcut + ikon masuk menu aplikasi.
 ### Windows 🪟
 
 Download **`eduway-Windows-Setup.exe`** dari halaman Releases → klik next-next
-selesai. Shortcut `eduway` muncul di Start Menu (langsung buka GUI).
+selesai. Shortcut `eduway` muncul di Start Menu.
 
 ### macOS 🍎
 
@@ -53,9 +49,8 @@ Open di pertama kali.
 
 ```bash
 git clone https://github.com/aniceswan/eduway && cd eduway
-cargo build --release --features gui
-./target/release/eduway        # CLI
-./target/release/eduway gui    # GUI
+cargo build --release
+./target/release/eduway
 ```
 
 Uninstall: hapus binary + `rm -rf ~/.eduway ~/Downloads/eduway`.
@@ -64,7 +59,7 @@ Uninstall: hapus binary + `rm -rf ~/.eduway ~/Downloads/eduway`.
 
 ## Pakai (3 langkah)
 
-1. **Buka app** (`eduway gui` atau klik ikon eduway).
+1. **Buka app** (`eduway` di terminal, atau klik ikon eduway).
 2. **Login** — satu tombol **Login dengan SSO**: jendela Chrome kebuka
    (profil sementara, bukan Chrome harianmu) → login SSO seperti biasa →
    token diambil + diverifikasi otomatis → jendela ketutup sendiri.
@@ -105,7 +100,6 @@ done: ok=8 skipped=0 failed=0
 | `whoami` / `status` | info user + umur session |
 | `logout` | hapus session + cache (mulai dari nol lagi) |
 | `refresh [--all]` | buang cache, tarik ulang daftar matkul |
-| `gui` | buka aplikasi grafis |
 | `help [cmd]` | bantuan. `exit`/`quit`/Ctrl-D keluar |
 
 Tips: pencet `Tab` untuk auto-complete (command, nama matkul/modul/file, flag).
@@ -155,11 +149,11 @@ isi zip buat bedain pptx/docx/xlsx) lalu rename otomatis. Terbukti:
 ## Buat developer
 
 ```bash
-cargo test --features gui   # 20 unit test, tanpa login
-cargo build --release --features gui
+cargo test   # 21 unit test, tanpa login
+cargo build --release
 ```
 
-Struktur (`src/`): `main.rs` (REPL) · `gui.rs` (egui) · `wlogin.rs` (login
+Struktur (`src/`): `main.rs` (REPL + Tab-completion) · `wlogin.rs` (login
 Chrome-CDP) · `blogin.rs` (fallback bookmarklet) · `api.rs` (semua HTTP di
 satu file) · `session.rs` (`~/.eduway`) · `vfs.rs` (pohon virtual).
 
@@ -169,5 +163,5 @@ Linux (.deb + tar.gz), Windows (Setup.exe + zip), macOS (.dmg + tar.gz).
 ## Limits (jujur)
 
 - Cuma matkulmu yang ter-enroll. Bukan alat bobol.
-- Tanpa video (HLS), tanpa GUI unduh paralel agresif (sekuensial + jeda sopan).
+- Tanpa video (HLS), tanpa unduh paralel agresif (sekuensial + jeda sopan).
 - Homepage/assignment/exam di web ga dipetakan — scope-nya file matkul.

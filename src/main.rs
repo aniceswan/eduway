@@ -1,6 +1,4 @@
 mod api;
-#[cfg(feature = "gui")]
-mod gui;
 mod blogin;
 mod session;
 mod vfs;
@@ -892,10 +890,12 @@ impl Shell {
 
     // ---------------- dl ----------------
     /// Shared `--ext / --include-viewer / [path]` parsing for `dl` and `dlall`.
+    /// Non-flag words are joined with spaces, so
+    /// `dlall IF2120-Probability and Statistics` is one path.
     fn parse_dl_args(arg: &str) -> Result<(HashSet<String>, bool, Option<String>), String> {
         let mut exts = HashSet::new();
         let mut include_viewer = false;
-        let mut target: Option<String> = None;
+        let mut path_parts: Vec<&str> = vec![];
         let toks: Vec<&str> = arg.split_whitespace().collect();
         let mut i = 0;
         while i < toks.len() {
@@ -921,13 +921,16 @@ impl Shell {
                 }
             } else if t.starts_with("--") {
                 return Err(format!("unknown flag {t}"));
-            } else if target.is_some() {
-                return Err("only one path allowed".to_string());
             } else {
-                target = Some(t.to_string());
+                path_parts.push(t);
             }
             i += 1;
         }
+        let target = if path_parts.is_empty() {
+            None
+        } else {
+            Some(path_parts.join(" "))
+        };
         Ok((exts, include_viewer, target))
     }
 
@@ -1311,8 +1314,6 @@ fn print_help(topic: &str) {
         ("whoami", "user + session age (alias: status)"),
         ("logout", "wipe session + caches"),
         ("refresh", "refetch course list (`refresh --all` = all tabs)"),
-        #[cfg(feature = "gui")]
-        ("gui", "open the graphical app"),
         ("help", "[cmd] this help"),
         ("exit", "quit (quit, Ctrl-D too)"),
     ];
@@ -1390,16 +1391,6 @@ fn dispatch(shell: &mut Shell, line: &str, rl: &mut Rl) -> bool {
         "whoami" | "status" => shell.do_whoami(),
         "logout" => shell.do_logout(),
         "refresh" => shell.do_refresh(rest),
-        "gui" => {
-            #[cfg(feature = "gui")]
-            {
-                crate::gui::run();
-            }
-            #[cfg(not(feature = "gui"))]
-            {
-                println!("GUI belum di-build. Build: cargo build --release --features gui");
-            }
-        }
         "help" | "?" => print_help(rest),
         "exit" | "quit" => return false,
         "" => {}
@@ -1447,5 +1438,16 @@ mod helper_tests {
     fn no_self_match() {
         let (_, c) = helper().suggest("ls", 2);
         assert!(c.is_empty());
+    }
+
+    #[test]
+    fn dl_args_join_spaced_path() {
+        let (exts, viewer, target) =
+            Shell::parse_dl_args("--ext=pdf IF2120-Probability and Statistics").unwrap();
+        assert_eq!(exts.into_iter().collect::<Vec<_>>(), vec!["pdf".to_string()]);
+        assert!(!viewer);
+        assert_eq!(target.as_deref(), Some("IF2120-Probability and Statistics"));
+        let (_, _, none) = Shell::parse_dl_args("--include-viewer").unwrap();
+        assert!(none.is_none());
     }
 }
