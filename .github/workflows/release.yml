@@ -63,7 +63,9 @@ jobs:
           copy assets\icon.ico installer\windows\stage\
           copy README.md installer\windows\stage\
           cd installer\windows
-          makensis eduway.nsi
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) { $makensis = "makensis" }
+          & $makensis eduway.nsi
           move eduway-Windows-Setup.exe ..\..\dist\
           cd ..\..
           Compress-Archive -Path target\release\eduway.exe,README.md,edunex-protocol.md,assets\icon.ico -DestinationPath dist\eduway-Windows.zip
