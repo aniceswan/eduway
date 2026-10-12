@@ -60,20 +60,17 @@ Uninstall: hapus binary + `rm -rf ~/.eduway ~/Downloads/eduway`.
 ## Pakai (3 langkah)
 
 1. **Buka app** (`eduway` di terminal, atau klik ikon eduway).
-2. **Login** — satu tombol **Login dengan SSO**: jendela Chrome kebuka
-   (profil sementara, bukan Chrome harianmu) → login SSO seperti biasa →
-   token diambil + diverifikasi otomatis → jendela ketutup sendiri.
-3. **Download** — pilih tab (`active`/`inactive`/`all`), klik matkul,
-   klik modul, tekan **Download 1 matkul ini**. File mendarat di
+2. **Login** — copy token dari browser (sekali saja):
+   login di `https://edunex.itb.ac.id` → F12 → Console →
+   paste `copy(localStorage.getItem('auth'))` → Enter.
+3. **Download** — `ls` → `cd active/<matkul>` → `dl`. File mendarat di
    `~/Downloads/eduway/<matkul>/<modul>/...`.
-
-Suka terminal? Sama persis, versi ketik:
 
 ```text
 $ eduway
 eduway> login
-(jendela Chrome kebuka — login SSO, ketutup sendiri)
-ok, halo (session tersimpan otomatis)
+paste session (copy(localStorage.getItem('auth'))) or file path: {"accessToken":"..."}
+ok, halo (ketik `ls` untuk daftar matkul)
 eduway> ls
 active/   inactive/   all/
 eduway> cd active/IF2120-Probability-and-Statistics
@@ -89,7 +86,7 @@ done: ok=8 skipped=0 failed=0
 
 | Perintah | Artinya |
 |---|---|
-| `login` | buka jendela login SSO (otomatis, tanpa copy-paste) |
+| `login` | paste token `auth` dari browser (sekali saja, lalu tersimpan) |
 | `ls [path?]` | root = tab `active/ inactive/ all/`. Di tab = matkul. Di matkul = modul. Di modul = file (`[viewer]` = bukan file) |
 | `cd <path\|..\|/\|~>` | pindah. `cd inactive` bisa dari mana aja. Typo dikasih saran |
 | `pwd` | posisi sekarang |
@@ -112,16 +109,13 @@ Tips: pencet `Tab` untuk auto-complete (command, nama matkul/modul/file, flag).
 
 ---
 
-## Kok bisa otomatis login-nya?
+## Cara login (detail)
 
-Singkatnya: SSO Edunex jalan di browser, jadi app bukain **jendela Chrome
-asli** (profil sementara, histori Chrome harianmu aman). Kamu login normal di
-situ, app ngintip `localStorage` lewat jalur resmi browser (CDP),
-verifikasi token ke server, simpan, tutup jendelanya. Detail protokol ada di
+`login` tanpa argumen minta kamu paste nilai `auth` dari DevTools browser.
+Bisa juga `login /path/ke/session.json`, atau `login <email> <password>`
+(password dipakai sekali, tidak disimpan). Token diverifikasi ke server
+dulu baru disimpan — gagal = tidak disimpan. Detail protokol ada di
 [`edunex-protocol.md`](edunex-protocol.md) (endpoint + bukti curl).
-
-Butuh Chrome/Chromium terinstall. Darurat (Chrome ga ada / jendela gagal):
-`login --browser` (bookmarklet 1 klik) — caranya ditampilkan di app.
 
 ---
 
@@ -149,12 +143,11 @@ isi zip buat bedain pptx/docx/xlsx) lalu rename otomatis. Terbukti:
 ## Buat developer
 
 ```bash
-cargo test   # 21 unit test, tanpa login
+cargo test   # 17 unit test, tanpa login
 cargo build --release
 ```
 
-Struktur (`src/`): `main.rs` (REPL + Tab-completion) · `wlogin.rs` (login
-Chrome-CDP) · `blogin.rs` (fallback bookmarklet) · `api.rs` (semua HTTP di
+Struktur (`src/`): `main.rs` (REPL + Tab-completion) · `api.rs` (semua HTTP di
 satu file) · `session.rs` (`~/.eduway`) · `vfs.rs` (pohon virtual).
 
 Rilis: `git tag v0.1.0 && git push origin v0.1.0` → Actions build

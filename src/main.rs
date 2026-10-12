@@ -1,8 +1,6 @@
 mod api;
-mod blogin;
 mod session;
 mod vfs;
-mod wlogin;
 
 use anyhow::Result;
 use rustyline::completion::{Completer, Pair};
@@ -330,17 +328,6 @@ impl Shell {
     // ---------------- login ----------------
     fn do_login(&mut self, arg: &str, rl: &mut Rl) {
         let arg = arg.trim();
-        if arg.is_empty() || arg == "--webview" {
-            // default: automatic window login, no manual steps
-            crate::wlogin::run();
-        }
-        if arg == "--browser" {
-            self.do_login_browser();
-            return;
-        }
-        if arg == "--webview" {
-            crate::wlogin::run();
-        }
         if !arg.is_empty() && !arg.starts_with('{') && arg.split_whitespace().count() == 2 {
             let mut it = arg.splitn(2, char::is_whitespace);
             let user = it.next().unwrap_or("").to_string();
@@ -450,39 +437,6 @@ impl Shell {
         self.loaded_tab = None;
         let show = if name.is_empty() { "user".to_string() } else { name };
         println!("ok, halo {show} (ketik `ls` untuk daftar matkul)");
-    }
-
-    /// `login --browser`: open Edunex in the browser, user logs in, one
-    /// bookmarklet click sends the session back here. Blocks up to 5 min.
-    fn do_login_browser(&mut self) {
-        use crate::blogin::Event;
-        println!("membuka browser ke halaman login edunex...");
-        println!("(kalau tidak terbuka, buka manual: https://edunex.itb.ac.id/pages/login)");
-        crate::blogin::run(crate::blogin::TIMEOUT, true, |ev| match ev {
-            Event::Ready { bookmarklet, page } => {
-                println!("1. login di browser sampai dashboard kebuka");
-                println!("2. buat bookmark baru, isi URL-nya persis dengan baris ini:");
-                println!("{bookmarklet}");
-                println!("3. klik bookmark itu di tab edunex yang sudah login");
-                println!("   status: {page}");
-                println!("menunggu (maks 5 menit, Ctrl-C batal)...");
-            }
-            Event::Done(Ok(sess)) => {
-                if session::save(&sess).is_err() {
-                    println!("FAIL cannot save session");
-                    return;
-                }
-                match Client::new(sess) {
-                    Ok(c) => {
-                        self.client = Some(c);
-                        self.loaded_tab = None;
-                        println!("ok, halo (ketik `ls` untuk daftar matkul)");
-                    }
-                    Err(e) => println!("FAIL {e:?}"),
-                }
-            }
-            Event::Done(Err(e)) => println!("FAIL {e}"),
-        });
     }
 
     // ---------------- ls ----------------
@@ -1303,7 +1257,7 @@ impl Shell {
 
 fn print_help(topic: &str) {
     let all = [
-        ("login", "buka jendela login SSO (otomatis)"),
+        ("login", "paste token `auth` dari browser (lihat README)"),
         ("ls", "[path?] list courses/modules/files. viewer files show [viewer]"),
         ("cd", "<path|..|/|~> move. typo prints similar names"),
         ("pwd", "print position"),
