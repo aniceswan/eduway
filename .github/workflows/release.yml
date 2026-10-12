@@ -52,7 +52,7 @@ jobs:
           EOF
           dpkg-deb --build "$PKG" "dist/eduway-Linux.deb"
           cp target/release/eduway README.md edunex-protocol.md assets/eduway.desktop assets/icon-256.png dist/
-          cd dist && tar czf eduway-Linux.tar.gz eduway README.md edunex-protocol.md eduway.desktop icon-256.png
+          cd dist && tar czf eduway-Linux.tar.gz eduway README.md edunex-protocol.md eduway.desktop icon-256.png && rm -f eduway README.md edunex-protocol.md eduway.desktop icon-256.png
 
       - name: package windows (NSIS setup + zip)
         if: runner.os == 'Windows'
@@ -68,7 +68,7 @@ jobs:
           & $makensis eduway.nsi
           move eduway-Windows-Setup.exe ..\..\dist\
           cd ..\..
-          Compress-Archive -Path target\release\eduway.exe,README.md,edunex-protocol.md,assets\icon.ico -DestinationPath dist\eduway-Windows.zip
+          Compress-Archive -Path target\release\eduway.exe -DestinationPath dist\eduway-Windows.zip
 
       - name: package macos (.dmg + .tar.gz)
         if: runner.os == 'macOS'
@@ -84,7 +84,7 @@ jobs:
           iconutil -c icns icon.iconset -o Eduway.app/Contents/Resources/icon.icns
           hdiutil create -volname Eduway -srcfolder Eduway.app -ov -format UDZO dist/eduway-macOS.dmg
           cp target/release/eduway README.md edunex-protocol.md assets/eduway.desktop assets/icon-256.png dist/
-          cd dist && tar czf eduway-macOS.tar.gz eduway README.md edunex-protocol.md eduway.desktop icon-256.png
+          cd dist && tar czf eduway-macOS.tar.gz eduway README.md edunex-protocol.md eduway.desktop icon-256.png && rm -f eduway README.md edunex-protocol.md eduway.desktop icon-256.png
 
       - uses: actions/upload-artifact@v4
         with:
